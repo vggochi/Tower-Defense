@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Tower Defense PRO UI</title>
+
+<style>
+body{
+  margin:0;
+  background:#020617;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
+  font-family:Arial;
+}
+
+canvas{
+  border-radius:12px;
+  box-shadow:0 0 50px rgba(56,189,248,0.4);
+}
+</style>
+</head>
+
+<body>
+<canvas id="game" width="1100" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// ===== STATE =====
+let money=300, life=20, wave=1;
+let upgradeMenu=null;
+
+// ===== PATH =====
+const path=[
+  {x:200,y:300},{x:600,y:300},{x:600,y:100},{x:1100,y:100}
+];
+
+let enemies=[], towers=[], projectiles=[];
+
+// ===== ENEMY =====
+class Enemy{
+  constructor(){
+    this.x=path[0].x;
+    this.y=path[0].y;
+    this.i=0;
+    this.hp=100;
+    this.speed=1;
+  }
+
+  update(){
+    const t=path[this.i+1];
+    if(!t){ life--; this.hp=0; return; }
+
+    const dx=t.x-this.x;
+    const dy=t.y-this.y;
+    const d=Math.hypot(dx,dy);
+
+    if(d<1) this.i++;
+    else{
+      this.x+=dx/d*this.speed;
+      this.y+=dy/d*this.speed;
+    }
+  }
+
+  draw(){
+    ctx.fillStyle="#ef4444";
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,6,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+// ===== TOWER =====
+class Tower{
+  constructor(x,y){
+    this.x=x;
+    this.y=y;
+
+    this.level=1;
+    this.damage=25;
+    this.range=140;
+    this.fireRate=40;
+
+    this.path=null;
+    this.cd=0;
+  }
+
+  upgrade(){
+    const cost=this.level*60;
+    if(money<cost) return;
+
+    money-=cost;
+    this.level++;
+
+    this.damage+=10;
+    this.range+=10;
+    this.fireRate=Math.max(10,this.fireRate-3);
+  }
+
+  update(){
+    this.cd--;
+
+    for(let e of enemies){
+      if(Math.hypot(e.x-this.x,e.y-this.y)<this.range && this.cd<=0){
+        projectiles.push(new Projectile(this.x,this.y,e,this));
+        this.cd=this.fireRate;
+        break;
+      }
+    }
+  }
+
+  draw(){
+    let color="#3b82f6";
+    if(this.path==="damage") color="#ef4444";
+    if(this.path==="speed") color="#22c55e";
+    if(this.path==="splash") color="#a855f7";
+
+    // base
+    ctx.fillStyle="#0f172a";
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,14,0,Math.PI*2);
+    ctx.fill();
+
+    // topo
+    ctx.fillStyle=color;
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,8,0,Math.PI*2);
+    ctx.fill();
+
+    // canhão
+    let t=enemies[0];
+    if(t){
+      const a=Math.atan2(t.y-this.y,t.x-this.x);
+      ctx.strokeStyle="white";
+      ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.moveTo(this.x,this.y);
+      ctx.lineTo(this.x+Math.cos(a)*20,this.y+Math.sin(a)*20);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle="white";
+    ctx.font="10px Arial";
+    ctx.fillText("Lv"+this.level,this.x-10,this.y-15);
+  }
+}
+
+// ===== PROJECTILE =====
+class Projectile{
+  constructor(x,y,towerTarget,tower){
+    this.x=x;
+    this.y=y;
+    this.t=towerTarget;
+    this.tower=tower;
+    this.hit=false;
+  }
+
+  update(){
+    if(!this.t) return;
+
+    const dx=this.t.x-this.x;
+    const dy=this.t.y-this.y;
+    const d=Math.hypot(dx,dy);
+
+    if(d<4){
+      this.hit=true;
+
+      let dmg=this.tower.damage;
+
+      if(this.tower.path==="splash"){
+        enemies.forEach(e=>{
+          if(Math.hypot(e.x-this.x,e.y-this.y)<50){
+            e.hp-=dmg;
+          }
+        });
+      }else{
+        this.t.hp-=dmg;
+      }
+
+    }else{
+      this.x+=dx/d*4;
+      this.y+=dy/d*4;
+    }
+  }
+
+  draw(){
+    ctx.fillStyle="#facc15";
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,3,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+// ===== INPUT =====
+canvas.addEventListener("click", e=>{
+  const rect=canvas.getBoundingClientRect();
+  const x=e.clientX-rect.left;
+  const y=e.clientY-rect.top;
+
+  // MENU
+  if(upgradeMenu){
+    if(x>420 && x<680){
+      if(y>240 && y<280) upgradeMenu.path="damage";
+      if(y>300 && y<340) upgradeMenu.path="speed";
+      if(y>360 && y<400) upgradeMenu.path="splash";
+    }
+    upgradeMenu=null;
+    return;
+  }
+
+  for(let t of towers){
+    if(Math.hypot(t.x-x,t.y-y)<15){
+      if(t.level>=3 && !t.path){
+        upgradeMenu=t;
+        return;
+      }
+      t.upgrade();
+      return;
+    }
+  }
+
+  if(money>=50){
+    towers.push(new Tower(x,y));
+    money-=50;
+  }
+});
+
+// ===== WAVES =====
+setInterval(()=>{
+  for(let i=0;i<wave*3;i++){
+    setTimeout(()=> enemies.push(new Enemy()), i*300);
+  }
+  wave++;
+},5000);
+
+// ===== LOOP =====
+function update(){
+  enemies.forEach(e=>e.update());
+  towers.forEach(t=>t.update());
+  projectiles.forEach(p=>p.update());
+
+  enemies=enemies.filter(e=>{
+    if(e.hp<=0){ money+=10; return false;}
+    return true;
+  });
+
+  projectiles=projectiles.filter(p=>!p.hit);
+}
+
+function draw(){
+  ctx.fillStyle="#020617";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // caminho
+  ctx.strokeStyle="#38bdf8";
+  ctx.lineWidth=3;
+  ctx.beginPath();
+  ctx.moveTo(path[0].x,path[0].y);
+  for(let p of path) ctx.lineTo(p.x,p.y);
+  ctx.stroke();
+
+  enemies.forEach(e=>e.draw());
+  towers.forEach(t=>t.draw());
+  projectiles.forEach(p=>p.draw());
+
+  // HUD
+  ctx.fillStyle="white";
+  ctx.font="14px Arial";
+  ctx.fillText("💰 "+money,20,20);
+  ctx.fillText("❤️ "+life,20,40);
+  ctx.fillText("🌊 "+wave,20,60);
+
+  // MENU ESTILIZADO
+  if(upgradeMenu){
+    ctx.fillStyle="rgba(15,23,42,0.95)";
+    ctx.fillRect(350,180,400,260);
+
+    ctx.fillStyle="#38bdf8";
+    ctx.font="20px Arial";
+    ctx.fillText("Escolha Upgrade",440,210);
+
+    drawButton(420,240,"🔴 DANO","#ef4444");
+    drawButton(420,300,"🟢 VELOCIDADE","#22c55e");
+    drawButton(420,360,"🟣 ÁREA","#a855f7");
+  }
+}
+
+function drawButton(x,y,text,color){
+  ctx.fillStyle=color;
+  ctx.fillRect(x,y,260,40);
+
+  ctx.fillStyle="white";
+  ctx.font="14px Arial";
+  ctx.fillText(text,x+20,y+25);
+}
+
+function loop(){
+  if(!upgradeMenu) update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
